@@ -2,6 +2,7 @@ package io.github.martinjos.jldd;
 
 import java.util.zip.*;
 import java.util.*;
+import java.util.regex.*;
 import java.io.*;
 
 public class Main {
@@ -49,8 +50,10 @@ public class Main {
             if (!ent.isDirectory()) {
                 String name = ent.getName();
                 if (name.toLowerCase().endsWith(".class")) {
-                    name = name.replaceFirst("(?i)\\.class$", "").replaceAll("[/\\\\$]", ".");
-                    if (name.matches(".*\\.[0-9]+(?:\\.|$)")) {
+                    name = name.replaceFirst("(?i)\\.class$", "");
+                    // Leave it in the form used by the symbol table.
+                    //.replaceAll("[/\\\\$]", ".");
+                    if (name.matches(".*\\.[0-9]+(?:\\.|$).*")) {
                         continue; // anonymous
                     }
                     if (!map.containsKey(name)) {
@@ -61,18 +64,19 @@ public class Main {
         }
     }
 
-    private static Set<String> getRefsUsed(String filename, Map<String,String> lookups)
+    private static Set<String> getTypesUsed(String filename)
     throws IOException {
         ZipFile f = new ZipFile(filename);
         Set<String> types = new TreeSet<String>();
         for (ZipEntry ent : new EnumerationIterable<ZipEntry>(f.entries())) {
             if (!ent.isDirectory() && ent.getName().toLowerCase().endsWith(".class")) {
-                System.out.println("Processing " + ent);
+                //System.out.println("Processing " + ent);
                 DataInputStream dis = new DataInputStream(f.getInputStream(ent));
                 dis.skipBytes(8);
                 int cpCount = dis.readUnsignedShort();
                 Map<Integer,String> utf8 = new HashMap<Integer,String>();
                 Set<Integer> validIdxs = new HashSet<Integer>();
+                Set<Integer> validIdxsBare = new HashSet<Integer>();
                 for (int i = 1; i < cpCount; i++) {
                     int typeTag = dis.readUnsignedByte();
                     ConstantType type = ConstantType.byTag(typeTag);
@@ -89,11 +93,16 @@ public class Main {
                         }
                         utf8.put(i, str);
                     } else if (type == null) {
-                        System.out.println("Error: got null tag in "+filename+"/"+ent.getName()+" (tag = "+typeTag+"): ending at index "+i+"; cpCount = " + cpCount);
+                        //System.out.println("Error: got null tag in "+filename+"/"+ent.getName()+" (tag = "+typeTag+"): ending at index "+i+"; cpCount = " + cpCount);
                         break;
-                    } else if (type == ConstantType.Class || type == ConstantType.MethodType) {
+                    } else if (type == ConstantType.Class) {
+                        // Bare class names, apart from array classes
+                        validIdxsBare.add(dis.readUnsignedShort());
+                    } else if (type == ConstantType.MethodType) {
+                        // I assume this is in standard form
                         validIdxs.add(dis.readUnsignedShort());
                     } else if (type == ConstantType.NameAndType) {
+                        // Standard form
                         dis.skipBytes(2);
                         validIdxs.add(dis.readUnsignedShort());
                     } else {
@@ -106,8 +115,9 @@ public class Main {
                         dis.skipBytes(type.getLength());
                     }
                 }
-                System.out.println("utf8.size() == " + utf8.size());
-                System.out.println("validIdxs.size() == " + validIdxs.size());
+                //System.out.println("utf8.size() == " + utf8.size());
+                //System.out.println("validIdxs.size() == " + validIdxs.size());
+                //System.out.println("validIdxsBare.size() == " + validIdxsBare.size());
                 for (int idx : validIdxs) {
                     if (!utf8.containsKey(idx)) {
                         System.out.println("ERROR: Index is not valid: " + idx);
@@ -115,12 +125,46 @@ public class Main {
                     }
                     types.add(utf8.get(idx));
                 }
+                for (int idx : validIdxsBare) {
+                    if (!utf8.containsKey(idx)) {
+                        System.out.println("ERROR: Index is not valid: " + idx);
+                        continue;
+                    }
+                    String typeStr = utf8.get(idx);
+                    if (!typeStr.startsWith("[")) {
+                        // Ensure that all class names can be extracted in the
+                        // same way
+                        typeStr = "#L" + typeStr + ";";
+                    }
+                    types.add(typeStr);
+                }
             }
         }
-        for (String type : types) {
-            System.out.println(type);
-        }
         return types;
+    }
+
+    private static void extractRefsFromType(Set<String> refs, String type, Map<String,String> lookups) {
+        Pattern p = Pattern.compile("L([^;]*);");
+        Matcher m = p.matcher(type);
+        while (m.find()) {
+            String name = m.group(1);
+            //refs.add(name); // names instead of refs
+            if (lookups.containsKey(name)) {
+                refs.add(lookups.get(name));
+            } else {
+                refs.add("<not found>");
+            }
+        }
+    }
+
+    private static Set<String> getRefsUsed(String filename, Map<String,String> lookups)
+    throws IOException {
+        Set<String> refs = new TreeSet<String>();
+        for (String type : getTypesUsed(filename)) {
+            //System.out.println(type);
+            extractRefsFromType(refs, type, lookups);
+        }
+        return refs;
     }
 
     public static void main(String[] args) throws IOException {
@@ -131,7 +175,8 @@ public class Main {
             saveClassLookups(lookups, cpstr);
         }
         for (String key : getRefsUsed(args[0], lookups)) {
-            //System.out.println(key + ": " + lookups.get(key));
+            //System.out.println(key + ": " + (lookups.containsKey(key) ? lookups.get(key) : "<not present>"));
+            System.out.println(key);
         }
     }
 }
