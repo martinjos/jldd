@@ -1,0 +1,8 @@
+apply plugin: 'java'
+
+task(run, dependsOn: 'assemble', type: JavaExec) {
+    main = 'io.github.martinjos.jldd.Main'
+    classpath = sourceSets.main.runtimeClasspath
+    def theArgs = (project.hasProperty('a1') ? [a1] : []) + (project.hasProperty('a2') ? [a2] : [])
+    args theArgs
+}
