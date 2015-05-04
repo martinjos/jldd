@@ -7,6 +7,8 @@ import java.io.*;
 
 public class Main {
 
+    private static String NOT_FOUND = "<some symbols not resolved>";
+
     private static enum ConstantType {
         Class(7, 2),
         Fieldref(9, 4),
@@ -120,14 +122,14 @@ public class Main {
                 //System.out.println("validIdxsBare.size() == " + validIdxsBare.size());
                 for (int idx : validIdxs) {
                     if (!utf8.containsKey(idx)) {
-                        System.out.println("ERROR: Index is not valid: " + idx);
+                        System.err.println("ERROR: Index is not valid: " + idx);
                         continue;
                     }
                     types.add(utf8.get(idx));
                 }
                 for (int idx : validIdxsBare) {
                     if (!utf8.containsKey(idx)) {
-                        System.out.println("ERROR: Index is not valid: " + idx);
+                        System.err.println("ERROR: Index is not valid: " + idx);
                         continue;
                     }
                     String typeStr = utf8.get(idx);
@@ -152,7 +154,8 @@ public class Main {
             if (lookups.containsKey(name)) {
                 refs.add(lookups.get(name));
             } else {
-                refs.add("<not found>");
+                //System.err.println("WARNING: Symbol not found: " + name);
+                refs.add(NOT_FOUND);
             }
         }
     }
@@ -167,6 +170,26 @@ public class Main {
         return refs;
     }
 
+    private static void printTree(String filename, Map<String,String> lookups,
+                                  Set<String> visited, int level, String rt)
+    throws IOException {
+        for (int i = 0; i < level; i++) {
+            System.out.print("  ");
+        }
+        System.out.println(filename);
+        if (filename.equals(rt) || filename.equals(NOT_FOUND)) {
+            return;
+        }
+        visited.add(filename);
+        for (String key : getRefsUsed(filename, lookups)) {
+            //System.out.println(key + ": " + (lookups.containsKey(key) ? lookups.get(key) : "<not present>"));
+            if (!visited.contains(key)) {
+                printTree(key, lookups, visited, level + 1, rt);
+            }
+        }
+        visited.remove(filename);
+    }
+
     public static void main(String[] args) throws IOException {
         Map<String,String> lookups = new TreeMap<String,String>();
         saveClassLookups(lookups, args[0]);
@@ -174,9 +197,20 @@ public class Main {
         for (String cpstr : cp) {
             saveClassLookups(lookups, cpstr);
         }
-        for (String key : getRefsUsed(args[0], lookups)) {
-            //System.out.println(key + ": " + (lookups.containsKey(key) ? lookups.get(key) : "<not present>"));
-            System.out.println(key);
+        String jh = System.getenv("JAVA_HOME");
+        if (jh == null || jh.isEmpty()) {
+            System.err.println("ERROR: JAVA_HOME is not set");
+            return;
         }
+        String rt = jh + "/lib/rt.jar";
+        if (!new File(rt).exists()) {
+            rt = jh + "/jre/lib/rt.jar";
+        }
+        if (!new File(rt).exists()) {
+            System.err.println("ERROR: rt.jar not found within JAVA_HOME");
+            return;
+        }
+        saveClassLookups(lookups, rt);
+        printTree(args[0], lookups, new TreeSet<String>(), 0, rt);
     }
 }
