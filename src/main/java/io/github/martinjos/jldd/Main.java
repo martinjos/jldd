@@ -193,21 +193,18 @@ public class Main {
     public static void main(String[] args) throws IOException {
         Map<String,String> lookups = new TreeMap<String,String>();
         saveClassLookups(lookups, args[0]);
-        String[] cp = args[1].split(";");
+        String[] cp = args[1].split(File.pathSeparator);
         for (String cpstr : cp) {
             saveClassLookups(lookups, cpstr);
         }
-        String jh = System.getenv("JAVA_HOME");
+        String jh = System.getProperty("java.home");
         if (jh == null || jh.isEmpty()) {
-            System.err.println("ERROR: JAVA_HOME is not set");
+            System.err.println("ERROR: java.home is not set");
             return;
         }
         String rt = jh + "/lib/rt.jar";
         if (!new File(rt).exists()) {
-            rt = jh + "/jre/lib/rt.jar";
-        }
-        if (!new File(rt).exists()) {
-            System.err.println("ERROR: rt.jar not found within JAVA_HOME");
+            System.err.println("ERROR: rt.jar not found within java.home ("+jh+")");
             return;
         }
         saveClassLookups(lookups, rt);
